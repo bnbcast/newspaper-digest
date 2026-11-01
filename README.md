@@ -1,4 +1,4 @@
-# The Daily Digest — Tech Newspaper
+# The Daily Digest. — Tech Newspaper
 
 A browser-based newspaper frontend that consumes the [hndaily-digest](https://github.com/bnbcast/hndaily-digest) daily Hacker News digest plus 5 niche tech sources, laid out in a classic multi-column newspaper format.
 

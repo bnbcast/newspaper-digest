@@ -1,273 +1,208 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useMemo } from "react";
 
-const GITHUB_RAW =
-  "https://raw.githubusercontent.com/bnbcast/hndaily-digest/main/digest";
+const REPO_OWNER = "bnbcast";
+const REPO_NAME = "hndaily-digest";
+const BRANCH = "main";
+const GITHUB_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/digest`;
 
-const NICHE_SOURCES = [
-  {
-    id: "lobsters",
-    name: "Lobste.rs",
-    label: "Computing · Lobsters",
-    rss: "https://lobste.rs/rss",
-  },
-  {
-    id: "arstechnica",
-    name: "Ars Technica",
-    label: "Technology · Ars Technica",
-    rss: "https://feeds.arstechnica.com/arstechnica/technology-lab",
-  },
-  {
-    id: "hackaday",
-    name: "Hackaday",
-    label: "Hardware · Hackaday",
-    rss: "https://hackaday.com/blog/feed/",
-  },
-  {
-    id: "devto",
-    name: "Dev.to",
-    label: "Developer Community · Dev.to",
-    rss: "https://dev.to/feed",
-  },
-  {
-    id: "stackoverflow",
-    name: "Stack Overflow Blog",
-    label: "Engineering · Stack Overflow",
-    rss: "https://stackoverflow.blog/feed/",
-  },
-];
-
-function parseDigestMarkdown(text) {
-  const lines = text.split("\n");
-  const stories = [];
-  for (const line of lines) {
-    const m = line.match(/^- \[(.+?)\]\((.+?)\)\s*\((\d+)\s*points\)/);
-    if (m) {
-      stories.push({ title: m[1], url: m[2], points: Number(m[3]) });
-    }
-  }
-  return stories;
-}
-
-function fetchDigest(date) {
-  return fetch(`${GITHUB_RAW}/${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${date.toISOString().slice(0, 10)}.md`)
-    .then((r) => (r.ok ? r.text() : ""))
-    .then(parseDigestMarkdown);
-}
-
-function fetchRSS(url) {
-  const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-  return fetch(proxy)
-    .then((r) => (r.ok ? r.text() : ""))
-    .then((xml) => {
-      if (!xml) return [];
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(xml, "application/xml");
-      const items = [...doc.querySelectorAll("item")].map((item) => ({
-        title: item.querySelector("title")?.textContent?.trim() || "",
-        url: item.querySelector("link")?.textContent?.trim() || "",
-        points: 0,
-      }));
-      return items.slice(0, 5);
+function parseMarkdown(markdown) {
+  const lines = markdown.split("\n");
+  const dateMatch = lines[0]?.match(/^# (\d{4}-\d{2}-\d{2})/);
+  const date = dateMatch ? dateMatch[1] : null;
+  const items = lines
+    .slice(1)
+    .filter((line) => line.trim().startsWith("- ["))
+    .map((line) => {
+      const match = line.match(/^- \[(.*?)\]\((.*?)\)\s*\((\d+)\s*points?\)/);
+      if (match) {
+        return { title: match[1], url: match[2], points: parseInt(match[3]) };
+      }
+      return null;
     })
-    .catch(() => []);
+    .filter(Boolean);
+  return { date, items };
 }
 
-function useFetchDigest(date) {
-  const [stories, setStories] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchDigest(date)
-      .then((s) => setStories(s))
-      .catch(() => setStories([]))
-      .finally(() => setLoading(false));
-  }, [date]);
-
-  return { stories, loading };
+function formatDate(dateStr) {
+  const date = new Date(dateStr + "T00:00:00");
+  return date.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 }
 
-function useFetchRSS(source) {
-  const [stories, setStories] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    fetchRSS(source.rss)
-      .then((s) => setStories(s))
-      .catch(() => setStories([]))
-      .finally(() => setLoading(false));
-  }, [source.rss]);
-
-  return { stories, loading };
-}
-
-function formatDate(d) {
-  return d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-}
-
-function formatDateShort(d) {
-  return d.toISOString().slice(0, 10);
-}
-
-function SectionHeader({ name, label, count }) {
+function Article({ item, index }) {
+  const isLead = index === 0;
   return (
-    <>
-      <h2 className="section-header">{name}</h2>
-      <div className="section-source">{label} · {count} stories</div>
-    </>
+    <article className={`article ${isLead ? "lead" : ""}`}>
+      <h2 className="article-title">
+        <a href={item.url} target="_blank" rel="noopener noreferrer">{item.title}</a>
+      </h2>
+      <div className="article-meta">
+        <span className="points">{item.points} points</span>
+        <span className="source">{new URL(item.url).hostname.replace("www.", "")}</span>
+      </div>
+    </article>
   );
 }
 
-function StoryList({ stories, loading, sourceName }) {
-  if (loading) {
-    return (
-      <div className="loading">Loading {sourceName}…</div>
-    );
-  }
-  if (stories.length === 0) {
-    return (
-      <div className="loading">No stories available for {sourceName}.</div>
-    );
-  }
+function DaySection({ date, items }) {
   return (
-    <>
-      {stories.map((s, i) => (
-        <div key={i} className="story">
-          <h3 className="story-title">
-            <a href={s.url} target="_blank" rel="noopener noreferrer">
-              {s.title}
-            </a>
-          </h3>
-          <p className="story-meta">{s.points > 0 ? `${s.points} points` : "niche source"} · {sourceName}</p>
-        </div>
-      ))}
-    </>
-  );
-}
-
-function Section({ source, dateStr, loading, stories }) {
-  const sourceName = source.id === "hn" ? "Hacker News" : source.name;
-  return (
-    <section className="section">
-      <SectionHeader name={sourceName} label={source.label} count={stories.length} />
-      <StoryList stories={stories} loading={loading} sourceName={sourceName} />
+    <section className="day-section" aria-labelledby={`day-${date}`}>
+      <header className="day-header">
+        <h1 id={`day-${date}`} className="day-title">{formatDate(date)}</h1>
+        <div className="day-count">{items.length} stories</div>
+      </header>
+      <div className="articles-grid">
+        {items.map((item, index) => (
+          <Article key={item.url} item={item} index={index} />
+        ))}
+      </div>
     </section>
   );
 }
 
-export default function App() {
-  const today = new Date();
-  const dateStr = formatDateShort(today);
-  const dateLabel = formatDate(today);
-
-  const [hnStories, setHNStories] = useState([]);
-  const [hnLoading, setHNLoading] = useState(true);
-  const [nicheData, setNicheData] = useState(
-    NICHE_SOURCES.map(() => ({ stories: [], loading: true })),
+function LoadingSkeleton() {
+  return (
+    <div className="skeleton">
+      <div className="skeleton-header">
+        <div className="skeleton-line long" />
+        <div className="skeleton-line short" />
+      </div>
+      <div className="skeleton-grid">
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="skeleton-article">
+            <div className="skeleton-line long" />
+            <div className="skeleton-line medium" />
+            <div className="skeleton-line short" />
+          </div>
+        ))}
+      </div>
+    </div>
   );
+}
 
-  // Fetch latest available digest (try today, then previous days)
-  useEffect(() => {
-    let cancelled = false;
-    let attempts = 0;
-    const maxAttempts = 7;
+function ErrorState({ message, onRetry }) {
+  return (
+    <div className="error-state">
+      <div className="error-icon">📰</div>
+      <h2>Couldn't load the newspaper</h2>
+      <p>{message}</p>
+      <button onClick={onRetry} className="retry-btn">Try again</button>
+      <p className="error-hint">Or visit the <a href={`https://github.com/${REPO_OWNER}/${REPO_NAME}`} target="_blank" rel="noopener">GitHub repository</a> directly.</p>
+    </div>
+  );
+}
 
-    function tryDate(offset) {
-      if (cancelled || attempts >= maxAttempts) return;
-      attempts += 1;
-      const d = new Date(today);
-      d.setDate(d.getDate() - offset);
-      fetchDigest(d)
-        .then((stories) => {
-          if (cancelled) return;
-          if (stories.length > 0) {
-            setHNStories(stories);
-            setHNLoading(false);
-          } else {
-            tryDate(offset + 1);
+function Header({ latestDate }) {
+  return (
+    <header className="newspaper-header">
+      <div className="header-content">
+        <div className="masthead">
+          <h1 className="newspaper-name">The Daily Digest</h1>
+          <p className="newspaper-tagline">Curated tech news, delivered daily</p>
+        </div>
+        <div className="header-meta">
+          <div className="date-badge">{latestDate ? formatDate(latestDate) : "Loading..."}</div>
+          <a href={`https://github.com/${REPO_OWNER}/${REPO_NAME}`} target="_blank" rel="noopener" className="github-link">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+            View on GitHub
+          </a>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="newspaper-footer">
+      <p>Generated daily by <a href={`https://github.com/${REPO_OWNER}/${REPO_NAME}`} target="_blank" rel="noopener">hndaily-digest</a> · Data from Hacker News API</p>
+      <p className="footer-note">Not affiliated with Hacker News or Y Combinator</p>
+    </footer>
+  );
+}
+
+export default function App() {
+  const [days, setDays] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchDigests = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Fetch the digest directory structure
+      const yearResponse = await fetch(`${GITHUB_API}?ref=${BRANCH}`);
+      if (!yearResponse.ok) throw new Error(`Failed to fetch years: ${yearResponse.status}`);
+      const years = await yearResponse.json();
+
+      // Get the latest 2 years
+      const yearDirs = years
+        .filter((item) => item.type === "dir")
+        .sort((a, b) => b.name.localeCompare(a.name))
+        .slice(0, 2);
+
+      const allDays = [];
+
+      for (const yearDir of yearDirs) {
+        const monthResponse = await fetch(`${GITHUB_API}/${yearDir.name}?ref=${BRANCH}`);
+        if (!monthResponse.ok) continue;
+        const months = await monthResponse.json();
+
+        const monthDirs = months
+          .filter((item) => item.type === "dir")
+          .sort((a, b) => b.name.localeCompare(a.name));
+
+        for (const monthDir of monthDirs) {
+          const dayResponse = await fetch(`${GITHUB_API}/${yearDir.name}/${monthDir.name}?ref=${BRANCH}`);
+          if (!dayResponse.ok) continue;
+          const daysFiles = await dayResponse.json();
+
+          const mdFiles = daysFiles
+            .filter((item) => item.type === "file" && item.name.endsWith(".md"))
+            .sort((a, b) => b.name.localeCompare(a.name))
+            .slice(0, 7); // Latest 7 days per month
+
+          for (const file of mdFiles) {
+            const contentResponse = await fetch(file.download_url);
+            if (!contentResponse.ok) continue;
+            const markdown = await contentResponse.text();
+            const parsed = parseMarkdown(markdown);
+            if (parsed.date && parsed.items.length > 0) {
+              allDays.push({ date: parsed.date, items: parsed.items });
+            }
           }
-        })
-        .catch(() => {
-          if (cancelled) return;
-          tryDate(offset + 1);
-        });
+        }
+      }
+
+      // Sort by date descending and take latest 14 days
+      allDays.sort((a, b) => b.date.localeCompare(a.date));
+      setDays(allDays.slice(0, 14));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    tryDate(0);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Fetch niche RSS feeds
   useEffect(() => {
-    let cancelled = false;
-    NICHE_SOURCES.forEach((source, idx) => {
-      fetchRSS(source.rss)
-        .then((stories) => {
-          if (cancelled) return;
-          setNicheData((prev) => {
-            const next = [...prev];
-            next[idx] = { stories, loading: false };
-            return next;
-          });
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setNicheData((prev) => {
-            const next = [...prev];
-            next[idx] = { stories: [], loading: false };
-            return next;
-          });
-        });
-    });
-    return () => {
-      cancelled = true;
-    };
+    fetchDigests();
   }, []);
 
-  const allSections = [
-    { id: "hn", name: "Hacker News", label: "Tech · Y Combinator", stories: hnStories, loading: hnLoading },
-    ...NICHE_SOURCES.map((source, idx) => ({
-      id: source.id,
-      name: source.name,
-      label: source.label,
-      stories: nicheData[idx]?.stories ?? [],
-      loading: nicheData[idx]?.loading ?? true,
-    })),
-  ];
+  const latestDate = days[0]?.date;
+
+  if (loading) return <LoadingSkeleton />;
+  if (error) return <ErrorState message={error} onRetry={fetchDigests} />;
+  if (days.length === 0) return <ErrorState message="No digests found" onRetry={fetchDigests} />;
 
   return (
     <>
-      <header className="masthead">
-        <div className="masthead-inner">
-          <h1 className="masthead-name">THE DAILY DIGEST</h1>
-          <div className="masthead-rule"></div>
-          <div className="masthead-sub">
-            <span className="masthead-date">{dateLabel}</span>
-            <span className="masthead-tagline">A daily newspaper for developers · {allSections.length} sources</span>
-          </div>
-        </div>
-      </header>
-
-      <div className="issue-bar">
-        <span>Edition: {dateStr}</span>
-        <span>Sources: {allSections.map((s) => s.name).join(" · ")}</span>
-        <span>Total stories: {allSections.reduce((a, s) => a + s.stories.length, 0)}</span>
-      </div>
-
-      <div className="columns">
-        {allSections.map((section) => (
-          <Section
-            key={section.id}
-            source={{ id: section.id, name: section.name, label: section.label }}
-            dateStr={dateStr}
-            loading={section.loading}
-            stories={section.stories}
-          />
+      <Header latestDate={latestDate} />
+      <main className="newspaper-main">
+        {days.map((day) => (
+          <DaySection key={day.date} date={day.date} items={day.items} />
         ))}
-      </div>
+      </main>
+      <Footer />
     </>
   );
 }

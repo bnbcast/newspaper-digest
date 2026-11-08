@@ -9,9 +9,9 @@
   --border-strong: #d4c8b0;
   --shadow: 0 2px 8px rgba(0,0,0,0.08);
   --shadow-strong: 0 4px 16px rgba(0,0,0,0.12);
-  --font-heading: 'Merriweather', Georgia, serif;
-  --font-body: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: 'Source Code Pro', ui-monospace, monospace;
+  --font-heading: Georgia, serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --max-width: 900px;
   --column-gap: 2.5rem;
 }
